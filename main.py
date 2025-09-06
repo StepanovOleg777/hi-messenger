@@ -7,18 +7,37 @@ import asyncio
 import json
 import datetime
 from typing import Dict, Any, List
+import os
 
-from database import engine, get_db, AsyncSessionLocal
-from models import Base, User, Message
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+# Импорты для базы данных
+try:
+    from database import engine, get_db, AsyncSessionLocal
+    from models import Base
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.future import select
+    from sqlalchemy.orm import selectinload
+
+    DB_AVAILABLE = True
+except ImportError as e:
+    print(f"Database import error: {e}")
+    DB_AVAILABLE = False
+except Exception as e:
+    print(f"Database initialization error: {e}")
+    DB_AVAILABLE = False
 
 
 # Асинхронная функция для создания таблиц при старте
 async def create_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if not DB_AVAILABLE:
+        print("Database not available - skipping table creation")
+        return
+
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("Таблицы в БД созданы/проверены")
+    except Exception as e:
+        print(f"Error creating tables: {e}")
 
 
 # Lifespan-события FastAPI
@@ -26,18 +45,18 @@ async def create_tables():
 async def lifespan(app: FastAPI):
     # Запускается при старте приложения
     await create_tables()
-    print("Таблицы в БД созданы/проверены")
     yield
     # Запускается при остановке приложения
-    await engine.dispose()
+    if DB_AVAILABLE:
+        await engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)
 
-# Включи CORS для работы с фронтендом с другого порта
+# Включи CORS для работы с фронтендом
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8000"],
+    allow_origins=["*"],  # Разрешаем все origins для разработки
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,12 +98,29 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
 
     try:
         while True:
+            # Ждем данные от клиента
             data = await websocket.receive_text()
             message_data = json.loads(data)
 
-            # СОХРАНЯЕМ СООБЩЕНИЕ В БД
-            async with AsyncSessionLocal() as db:
-                try:
+            # Эмуляция работы с БД если БД недоступна
+            if not DB_AVAILABLE:
+                broadcast_message = json.dumps({
+                    "type": "message",
+                    "from": user_id,
+                    "from_username": f"User_{user_id}",
+                    "text": message_data.get("text", ""),
+                    "timestamp": datetime.datetime.utcnow().isoformat(),
+                    "message_id": datetime.datetime.now().timestamp()
+                })
+                await manager.broadcast(broadcast_message)
+                continue
+
+            # Реальная работа с БД
+            try:
+                from database import AsyncSessionLocal
+                from models import User, Message
+
+                async with AsyncSessionLocal() as db:
                     # Проверяем существование пользователя
                     user_result = await db.execute(select(User).filter(User.id == user_id))
                     user = user_result.scalar_one_or_none()
@@ -126,12 +162,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
 
                     await manager.broadcast(broadcast_message)
 
-                except Exception as e:
-                    print(f"Database error: {e}")
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": "Ошибка сохранения сообщения"
-                    }))
+            except Exception as e:
+                print(f"Database error: {e}")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Ошибка сохранения сообщения"
+                }))
 
     except WebSocketDisconnect:
         manager.disconnect(user_id)
@@ -144,26 +180,33 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int):
 
 # API для получения истории сообщений
 @app.get("/api/messages")
-async def get_messages(limit: int = 100, db: AsyncSession = Depends(get_db)):
+async def get_messages(limit: int = 100):
+    if not DB_AVAILABLE:
+        return {"messages": []}
+
     try:
-        result = await db.execute(
-            select(Message, User.username)
-            .join(User, Message.sender_id == User.id)
-            .order_by(Message.timestamp.desc())
-            .limit(limit)
-        )
+        from database import AsyncSessionLocal
+        from models import Message, User
 
-        messages = []
-        for message, username in result:
-            messages.append({
-                "id": message.id,
-                "text": message.text,
-                "from": message.sender_id,
-                "from_username": username,
-                "timestamp": message.timestamp.isoformat()
-            })
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Message, User.username)
+                .join(User, Message.sender_id == User.id)
+                .order_by(Message.timestamp.desc())
+                .limit(limit)
+            )
 
-        return {"messages": list(reversed(messages))}  # Возвращаем в правильном порядке
+            messages = []
+            for message, username in result:
+                messages.append({
+                    "id": message.id,
+                    "text": message.text,
+                    "from": message.sender_id,
+                    "from_username": username,
+                    "timestamp": message.timestamp.isoformat()
+                })
+
+            return {"messages": list(reversed(messages))}
 
     except Exception as e:
         print(f"Error getting messages: {e}")
@@ -172,22 +215,27 @@ async def get_messages(limit: int = 100, db: AsyncSession = Depends(get_db)):
 
 # API для получения информации о пользователе
 @app.get("/api/user/{user_id}")
-async def get_user_info(user_id: int, db: AsyncSession = Depends(get_db)):
-    try:
-        result = await db.execute(
-            select(User).filter(User.id == user_id)
-        )
-        user = result.scalar_one_or_none()
+async def get_user_info(user_id: int):
+    if not DB_AVAILABLE:
+        return {"id": user_id, "username": f"User_{user_id}", "status": "offline"}
 
-        if user:
-            return {
-                "id": user.id,
-                "username": user.username,
-                "created_at": user.created_at.isoformat(),
-                "last_seen": user.last_seen.isoformat()
-            }
-        else:
-            return JSONResponse(status_code=404, content={"message": "User not found"})
+    try:
+        from database import AsyncSessionLocal
+        from models import User
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(User).filter(User.id == user_id))
+            user = result.scalar_one_or_none()
+
+            if user:
+                return {
+                    "id": user.id,
+                    "username": user.username,
+                    "created_at": user.created_at.isoformat(),
+                    "last_seen": user.last_seen.isoformat()
+                }
+            else:
+                return JSONResponse(status_code=404, content={"message": "User not found"})
 
     except Exception as e:
         print(f"Error getting user info: {e}")
@@ -196,26 +244,33 @@ async def get_user_info(user_id: int, db: AsyncSession = Depends(get_db)):
 
 # API для обновления username
 @app.post("/api/user/{user_id}/username")
-async def update_username(user_id: int, new_username: str, db: AsyncSession = Depends(get_db)):
+async def update_username(user_id: int, new_username: str):
+    if not DB_AVAILABLE:
+        return {"message": "Database not available"}
+
     try:
-        # Проверяем, не занят ли username
-        existing_user = await db.execute(
-            select(User).filter(User.username == new_username, User.id != user_id)
-        )
-        if existing_user.scalar_one_or_none():
-            return JSONResponse(status_code=400, content={"message": "Username already taken"})
+        from database import AsyncSessionLocal
+        from models import User
 
-        # Находим пользователя
-        result = await db.execute(select(User).filter(User.id == user_id))
-        user = result.scalar_one_or_none()
+        async with AsyncSessionLocal() as db:
+            # Проверяем, не занят ли username
+            existing_user = await db.execute(
+                select(User).filter(User.username == new_username, User.id != user_id)
+            )
+            if existing_user.scalar_one_or_none():
+                return JSONResponse(status_code=400, content={"message": "Username already taken"})
 
-        if user:
-            user.username = new_username
-            user.last_seen = datetime.datetime.utcnow()
-            await db.commit()
-            return {"message": "Username updated successfully"}
-        else:
-            return JSONResponse(status_code=404, content={"message": "User not found"})
+            # Находим пользователя
+            result = await db.execute(select(User).filter(User.id == user_id))
+            user = result.scalar_one_or_none()
+
+            if user:
+                user.username = new_username
+                user.last_seen = datetime.datetime.utcnow()
+                await db.commit()
+                return {"message": "Username updated successfully"}
+            else:
+                return JSONResponse(status_code=404, content={"message": "User not found"})
 
     except Exception as e:
         print(f"Error updating username: {e}")
@@ -225,7 +280,16 @@ async def update_username(user_id: int, new_username: str, db: AsyncSession = De
 # Простейший эндпоинт для проверки
 @app.get("/")
 async def root():
-    return {"message": "Hello World", "python_version": "3.13"}
+    return {
+        "message": "Hello World",
+        "python_version": "3.11.0",
+        "database_available": DB_AVAILABLE,
+        "endpoints": {
+            "chat": "/hi",
+            "api_messages": "/api/messages",
+            "websocket": "/ws/{user_id}"
+        }
+    }
 
 
 # Эндпоинт для проверки активных подключений
@@ -240,19 +304,19 @@ async def hi_chat():
     return FileResponse("static/index.html")
 
 
-@app.get("/static/sw.js")
-async def get_service_worker():
-    return FileResponse("static/sw.js", media_type="application/javascript")
-
-@app.get("/static/manifest.json")
-async def get_manifest():
-    return FileResponse("static/manifest.json", media_type="application/json")
-
-
-# Добавляем обслуживание статических файлов
+# Обслуживание статических файлов
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# Fallback для SPA - все остальные пути возвращают index.html
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    if full_path.startswith("static/") or full_path.startswith("api/"):
+        raise HTTPException(status_code=404)
+    return FileResponse("static/index.html")
+
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
