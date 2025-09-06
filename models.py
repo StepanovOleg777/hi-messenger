@@ -1,6 +1,7 @@
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, Text, DateTime
+from sqlalchemy import ForeignKey, Text, DateTime, String
 import datetime
+import secrets
 
 
 class Base(DeclarativeBase):
@@ -11,13 +12,30 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(nullable=False)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(100), unique=True, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     last_seen: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
 
     # Связь с сообщениями
     messages = relationship("Message", back_populates="sender")
+    # Связь с сессиями
+    sessions = relationship("UserSession", back_populates="user")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    token: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime)
+    user_agent: Mapped[str] = mapped_column(Text, nullable=True)
+
+    # Связь с пользователем
+    user = relationship("User", back_populates="sessions")
 
 
 class Message(Base):
