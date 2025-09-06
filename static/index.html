@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hi! - Мессенджер</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#764ba2">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Hi!">
+
+    <!-- Иконки -->
+    <link rel="icon" href="/static/icon-192.png">
+    <link rel="apple-touch-icon" href="/static/icon-192.png">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .chat-container {
+            width: 90%;
+            max-width: 800px;
+            height: 80vh;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: #4a5568;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            font-weight: 300;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f7fafc;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 10px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+
+        .message.my-message {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .message.other-message {
+            background: white;
+            color: #2d3748;
+            border: 1px solid #e2e8f0;
+        }
+
+        .message-sender {
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 5px;
+            opacity: 0.8;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 5px;
+        }
+
+        .system-message {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            background: none;
+            border: none;
+            margin: 10px auto;
+            max-width: 100%;
+        }
+
+        .chat-input {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 25px;
+            outline: none;
+            font-size: 14px;
+        }
+
+        .message-input:focus {
+            border-color: #667eea;
+        }
+
+        .send-button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        .send-button:hover {
+            background: #5a67d8;
+        }
+
+        .send-button:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+        }
+
+        .connection-status {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-connected {
+            background: #48bb78;
+        }
+
+        .status-disconnected {
+            background: #f56565;
+        }
+
+        .user-panel {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-id {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 4px 8px;
+            border-radius: 10px;
+        }
+
+        .username-input {
+            padding: 4px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 11px;
+            width: 120px;
+        }
+
+        .username-input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .update-username-btn {
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+
+        .update-username-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Стиль для кнопки установки PWA */
+        .install-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
+            font-weight: bold;
+        }
+
+        .install-button:hover {
+            background: #5a67d8;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>Hi! 💬</h1>
+            <div class="user-panel">
+                <span class="user-id">ID: <span id="user-id-display">-</span></span>
+                <input
+                    type="text"
+                    class="username-input"
+                    id="username-input"
+                    placeholder="Ваш никнейм"
+                >
+                <button class="update-username-btn" id="update-username-btn">Сменить</button>
+            </div>
+            <div class="connection-status">
+                <span class="status-dot status-disconnected" id="status-dot"></span>
+                <span id="status-text">Отключен</span>
+            </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+            <div class="message system-message">
+                Добро пожаловать в Hi! Подключитесь, чтобы начать общение.
+            </div>
+        </div>
+
+        <div class="chat-input">
+            <input
+                type="text"
+                class="message-input"
+                id="message-input"
+                placeholder="Введите сообщение..."
+                disabled
+            >
+            <button class="send-button" id="send-button" disabled>Отправить</button>
+        </div>
+    </div>
+
+    <!-- Кнопка установки PWA -->
+    <button class="install-button" id="install-button">📲 Установить приложение</button>
+
+    <script>
+        let socket = null;
+        let currentUserId = null;
+        let currentUsername = null;
+        let deferredPrompt = null;
+
+        // Элементы интерфейса
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const chatMessages = document.getElementById('chat-messages');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const usernameInput = document.getElementById('username-input');
+        const updateUsernameBtn = document.getElementById('update-username-btn');
+        const installButton = document.getElementById('install-button');
+
+        // Функция для запроса User ID
+        function getUserId() {
+            const savedUserId = localStorage.getItem('hi_user_id');
+            if (savedUserId) {
+                return parseInt(savedUserId);
+            }
+
+            const newUserId = Math.floor(Math.random() * 1000) + 1;
+            localStorage.setItem('hi_user_id', newUserId.toString());
+            return newUserId;
+        }
+
+        // Функция для загрузки username
+        function getUsername() {
+            return localStorage.getItem('hi_username') || `User_${currentUserId}`;
+        }
+
+        // Функция для сохранения username
+        function saveUsername(username) {
+            localStorage.setItem('hi_username', username);
+            currentUsername = username;
+            usernameInput.value = username;
+        }
+
+        // Функция обновления username на сервере
+        async function updateUsernameOnServer(newUsername) {
+            try {
+                const response = await fetch(`/api/user/${currentUserId}/username?new_username=${encodeURIComponent(newUsername)}`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    addSystemMessage('Никнейм успешно изменен!');
+                    return true;
+                } else {
+                    addSystemMessage('Ошибка: ' + result.message);
+                    return false;
+                }
+            } catch (error) {
+                console.error('Ошибка обновления никнейма:', error);
+                addSystemMessage('Ошибка соединения с сервером');
+                return false;
+            }
+        }
+
+        // Функция загрузки истории сообщений
+        async function loadMessageHistory() {
+            try {
+                const response = await fetch('/api/messages?limit=50');
+                const data = await response.json();
+
+                if (data.messages && data.messages.length > 0) {
+                    // Очищаем системные сообщения
+                    const systemMessages = chatMessages.querySelectorAll('.system-message');
+                    if (systemMessages.length > 0) {
+                        systemMessages[0].remove();
+                    }
+
+                    // Добавляем сообщения из истории
+                    data.messages.forEach(msg => {
+                        addMessage(
+                            msg.from,
+                            msg.text,
+                            msg.timestamp,
+                            msg.from === currentUserId,
+                            msg.from_username
+                        );
+                    });
+
+                    addSystemMessage('История сообщений загружена');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки истории:', error);
+                addSystemMessage('Не удалось загрузить историю сообщений');
+            }
+        }
+
+        // Функция подключения
+        function connect() {
+            currentUserId = getUserId();
+            currentUsername = getUsername();
+
+            // Обновляем отображение
+            userIdDisplay.textContent = currentUserId;
+            usernameInput.value = currentUsername;
+            usernameInput.placeholder = `User_${currentUserId}`;
+
+            // Используем wss:// для HTTPS или ws:// для HTTP
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/${currentUserId}`;
+
+            try {
+                socket = new WebSocket(wsUrl);
+                updateStatus(false);
+
+                socket.onopen = function() {
+                    updateStatus(true);
+                    addSystemMessage('Подключено к чату');
+                    messageInput.disabled = false;
+                    sendButton.disabled = false;
+                    messageInput.focus();
+                    loadMessageHistory();
+                };
+
+                socket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'message') {
+                            addMessage(
+                                data.from,
+                                data.text,
+                                data.timestamp,
+                                data.from === currentUserId,
+                                data.from_username
+                            );
+                        } else if (data.type === 'user_disconnected') {
+                            addSystemMessage(`Пользователь #${data.user_id} вышел из чата`);
+                        } else if (data.type === 'error') {
+                            addSystemMessage('Ошибка: ' + data.message);
+                        }
+                    } catch (e) {
+                        console.error('Ошибка парсинга сообщения:', e);
+                        addSystemMessage('Получено некорректное сообщение');
+                    }
+                };
+
+                socket.onclose = function() {
+                    updateStatus(false);
+                    addSystemMessage('Отключено от сервера');
+                    messageInput.disabled = true;
+                    sendButton.disabled = true;
+                };
+
+                socket.onerror = function(error) {
+                    addSystemMessage('Ошибка соединения');
+                    console.error('WebSocket error:', error);
+                };
+
+            } catch (error) {
+                addSystemMessage('Ошибка подключения: ' + error);
+            }
+        }
+
+        // Функция отключения
+        function disconnect() {
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
+        }
+
+        // Обновление статуса подключения
+        function updateStatus(connected) {
+            statusDot.className = `status-dot ${connected ? 'status-connected' : 'status-disconnected'}`;
+            statusText.textContent = connected ? 'Подключен' : 'Отключен';
+        }
+
+        // Добавление системного сообщения
+        function addSystemMessage(text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message system-message';
+            messageDiv.textContent = text;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Добавление сообщения пользователя
+        function addMessage(userId, text, timestamp, isMyMessage = false, username = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isMyMessage ? 'my-message' : 'other-message'}`;
+
+            const time = new Date(timestamp).toLocaleTimeString();
+            const displayName = username || `User_${userId}`;
+
+            messageDiv.innerHTML = `
+                ${!isMyMessage ? `<div class="message-sender">${displayName}</div>` : ''}
+                <div>${text}</div>
+                <div class="message-time">${time}</div>
+            `;
+
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Отправка сообщения
+        function sendMessage() {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const text = messageInput.value.trim();
+                if (text) {
+                    socket.send(JSON.stringify({ text: text }));
+                    messageInput.value = '';
+                }
+            }
+        }
+
+        // Обновление никнейма
+        async function updateUsername() {
+            const newUsername = usernameInput.value.trim();
+            if (!newUsername) {
+                addSystemMessage('Никнейм не может быть пустым');
+                return;
+            }
+
+            if (newUsername === currentUsername) {
+                addSystemMessage('Это ваш текущий никнейм');
+                return;
+            }
+
+            const success = await updateUsernameOnServer(newUsername);
+            if (success) {
+                saveUsername(newUsername);
+            }
+        }
+
+        // PWA: Обработка установки
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installButton.style.display = 'block';
+        });
+
+        installButton.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+
+            if (outcome === 'accepted') {
+                installButton.style.display = 'none';
+                addSystemMessage('Приложение установлено!');
+            }
+
+            deferredPrompt = null;
+        });
+
+        // Регистрация Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(registration => {
+                    console.log('Service Worker зарегистрирован');
+                })
+                .catch(error => {
+                    console.log('Ошибка регистрации Service Worker:', error);
+                });
+        }
+
+        // Обработчики событий
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        sendButton.addEventListener('click', sendMessage);
+        updateUsernameBtn.addEventListener('click', updateUsername);
+
+        usernameInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                updateUsername();
+            }
+        });
+
+        // Автоподключение при загрузке
+        window.addEventListener('load', connect);
+
+        // Отключение при закрытии страницы
+        window.addEventListener('beforeunload', disconnect);
+    </script>
+</body>
+</html>
